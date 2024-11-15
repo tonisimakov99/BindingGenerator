@@ -33,6 +33,7 @@ namespace BindingGenerator
             string apiClassName,
             bool forceClearOutputDirectory = true,
             bool noBuiltinIncludes = false,
+            bool noStandardIncludes = true,
             List<EnumSearchParameter>? preprocessedEnumSearchParameters = default,
             Dictionary<PrimitiveType, string>? primitiveTypesToCsTypesMap = default,
             Dictionary<string, TypedefStrategy>? typedefStrategies = default,
@@ -49,6 +50,7 @@ namespace BindingGenerator
             parserOptions.Setup(TargetPlatform.Windows);
             parserOptions.LanguageVersion = CppSharp.Parser.LanguageVersion.CPP17_GNU;
             parserOptions.NoBuiltinIncludes = noBuiltinIncludes;
+            parserOptions.NoStandardIncludes = noStandardIncludes;
             var parseResult = ClangParser.ParseSourceFiles(
                 new[] {
                         headerPath
