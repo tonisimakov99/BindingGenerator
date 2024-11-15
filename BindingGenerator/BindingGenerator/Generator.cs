@@ -56,7 +56,7 @@ namespace BindingGenerator
             for (uint i = 0; i != parseResult.DiagnosticsCount; i++)
             {
                 var diagnostic = parseResult.GetDiagnostics(i);
-                logger?.LogWarning("line: {line}, column: {column}, message: {message}", diagnostic.LineNumber,diagnostic.ColumnNumber, diagnostic.Message);
+                logger?.LogWarning("fileName: {fileName}, line: {line}, column: {column}, message: {message}", diagnostic.FileName, diagnostic.LineNumber, diagnostic.ColumnNumber, diagnostic.Message);
             }
 
             if (parseResult.Kind != CppSharp.Parser.ParserResultKind.Success)
