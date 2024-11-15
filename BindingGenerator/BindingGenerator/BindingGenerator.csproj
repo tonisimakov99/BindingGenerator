@@ -4,6 +4,13 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
+	  <Description>CppSharp based binding generator for dotnet</Description>
+	  <PackageProjectUrl>https://github.com/tonisimakov99/BindingGenerator</PackageProjectUrl>
+	  <RepositoryUrl>https://github.com/tonisimakov99/BindingGenerator</RepositoryUrl>
+	  <PackageReleaseNotes>redefinition</PackageReleaseNotes>
+	  <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+	  <PackageTags>Generator;Bindings;CppSharp</PackageTags>
+	  <Version>1.0.1</Version>
   </PropertyGroup>
 
 	<ItemGroup>

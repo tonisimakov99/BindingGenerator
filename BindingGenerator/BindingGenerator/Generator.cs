@@ -53,15 +53,11 @@ namespace BindingGenerator
                         headerPath
                 }, parserOptions);
 
-            var messages = new List<string>();
             for (uint i = 0; i != parseResult.DiagnosticsCount; i++)
             {
                 var diagnostic = parseResult.GetDiagnostics(i);
-                messages.Add(diagnostic.Message);
+                logger?.LogWarning("line: {line}, column: {column}, message: {message}", diagnostic.LineNumber,diagnostic.ColumnNumber, diagnostic.Message);
             }
-
-            if (messages.Count > 0)
-                throw new Exception(messages.Aggregate((a, b) => a + ' ' + b));
 
             if (parseResult.Kind != CppSharp.Parser.ParserResultKind.Success)
                 throw new Exception(parseResult.Kind.ToString());

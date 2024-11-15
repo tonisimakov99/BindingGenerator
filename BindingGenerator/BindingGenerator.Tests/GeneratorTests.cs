@@ -1,9 +1,24 @@
+using CppSharp.Types.Std;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestPlatform.ObjectModel;
+using Microsoft.VisualStudio.TestPlatform.Utilities;
+using Serilog;
+using Xunit.Abstractions;
 
 namespace BindingGenerator.Tests
 {
     public class UnitTest1
     {
+        ILoggerFactory loggerFactory;
+        public UnitTest1(ITestOutputHelper output)
+        {
+            Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+               .Enrich.FromLogContext()
+               .WriteTo.TestOutput(output)
+               .CreateLogger();
+           loggerFactory = LoggerFactory.Create((builder) => { builder.AddSerilog(Log.Logger); });
+        }
         [Fact]
         public void OverrideParameterTest()
         {
@@ -48,6 +63,21 @@ namespace BindingGenerator.Tests
             Assert.True(File.Exists("anonimusEnumsTest/LibApi.cs"));
             Assert.True(File.Exists("anonimusEnumsTest/FT_Error.cs"));
             Assert.True(File.Exists("anonimusEnumsTest/SomeEnum.cs"));
+        }
+
+        [Fact]
+        public void TypeRedefinitionTest()
+        {
+            Generator.Generate(
+               new[] { $"{Environment.CurrentDirectory}/headers/typeRedefinitionTest" },
+               "redefinition.h",
+               "./typeRedefinitionTest",
+               "Lib",
+               "Lib",
+               "LibApi",
+               logger: loggerFactory.CreateLogger<Generator>()
+             );
+
         }
     }
 }
