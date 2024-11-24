@@ -8,6 +8,12 @@ namespace BindingGenerator
 {
     public class EnumSearchParameter
     {
+        public EnumSearchParameter(string prefix, string excludePrefix)
+        {
+            Prefix = prefix;
+            ExcludePrefix = excludePrefix;
+        }
+
         public string Prefix { get; set; }
 
         public string ExcludePrefix { get; set; }

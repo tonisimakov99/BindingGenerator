@@ -1,17 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-	  <Description>CppSharp based binding generator for dotnet</Description>
-	  <PackageProjectUrl>https://github.com/tonisimakov99/BindingGenerator</PackageProjectUrl>
-	  <RepositoryUrl>https://github.com/tonisimakov99/BindingGenerator</RepositoryUrl>
-	  <PackageReleaseNotes>noBuiltinIncludes, noStandardIncludes</PackageReleaseNotes>
-	  <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-	  <PackageTags>Generator;Bindings;CppSharp</PackageTags>
-	  <Version>1.0.4</Version>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<PlatformTarget>x64</PlatformTarget>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<Description>CppSharp based binding generator for dotnet</Description>
+		<PackageProjectUrl>https://github.com/tonisimakov99/BindingGenerator</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/tonisimakov99/BindingGenerator</RepositoryUrl>
+		<PackageReleaseNotes>some changes</PackageReleaseNotes>
+		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+		<PackageTags>Generator;Bindings;CppSharp</PackageTags>
+		<Version>1.0.5</Version>
+	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="CommandLineParser" Version="2.9.1" />
@@ -19,5 +20,5 @@
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
 	</ItemGroup>
-	
+
 </Project>

@@ -1,6 +1,6 @@
 enum {
-	A,
-	B
+	PrefixA,
+	PrefixB
 };
 
 enum SomeEnum {
