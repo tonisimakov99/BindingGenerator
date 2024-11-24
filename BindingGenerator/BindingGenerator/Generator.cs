@@ -30,7 +30,7 @@ namespace BindingGenerator
             string _namespace,
             bool forceClearOutputDirectory = true,
             bool noBuiltinIncludes = false,
-            bool noStandardIncludes = true,
+            bool noStandardIncludes = false,
             List<string>? forceTypesToGeneration = default,
             Dictionary<string, string>? notFoundTypesOverrides = default,
             List<EnumSearchParameter>? preprocessedEnumSearchParameters = default,
@@ -77,114 +77,323 @@ namespace BindingGenerator
 
             InitTypes(context, preprocessedEnumSearchParameters, anonymousEnumPrefixes, logger: logger);
 
+            var namespaceNameSyntax = SyntaxFactory.IdentifierName(_namespace);
+
+            var namespaceDeclarationSyntax = SyntaxFactory.NamespaceDeclaration(
+                namespaceNameSyntax,
+                default,
+                default,
+                default);
+
             foreach (var lib in libs)
             {
-                var rootSyntax = SyntaxFactory.CompilationUnit();
-                rootSyntax = rootSyntax.AddUsings(SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName("System.Runtime.InteropServices")));
-
-                var classSyntax = SyntaxFactory.ClassDeclaration(lib.LibName);
-                classSyntax = classSyntax.AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
-                classSyntax = classSyntax.AddModifiers(SyntaxFactory.Token(SyntaxKind.UnsafeKeyword));
-                classSyntax = classSyntax.AddModifiers(SyntaxFactory.Token(SyntaxKind.StaticKeyword));
-
-
-                var attributesArgsList = new SeparatedSyntaxList<AttributeArgumentSyntax>();
-                attributesArgsList = attributesArgsList.Add(
-                    SyntaxFactory.AttributeArgument(
-                        SyntaxFactory.LiteralExpression(
-                            SyntaxKind.StringLiteralExpression,
-                                SyntaxFactory.Literal(lib.LibFileImportedNamePath))));
-                attributesArgsList = attributesArgsList.Add(
-                    SyntaxFactory.AttributeArgument(SyntaxFactory.ParseExpression("CallingConvention = CallingConvention.Cdecl")));
-
-
-                var dllImportAttribute = SyntaxFactory.Attribute(
-                    SyntaxFactory.IdentifierName("DllImport"),
-                    SyntaxFactory.AttributeArgumentList(attributesArgsList)
-                    );
-
-                var funcSyntaxTypes = new List<MethodDeclarationSyntax>();
-
-                using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{lib.LibName}.cs")))
+                var translationUnit = context.TranslationUnits.FirstOrDefault(t => lib.FuncsHeaderPath.Contains(t.FileName));
+                if (translationUnit == null)
                 {
-                    var translationUnit = context.TranslationUnits.FirstOrDefault(t => lib.FuncsHeaderPath.Contains(t.FileName));
-                    if (translationUnit == null)
-                    {
-                        throw new Exception($"Не найден translation unit для {lib.FuncsHeaderPath}");
-                    }
+                    throw new Exception($"Не найден translation unit для {lib.FuncsHeaderPath}");
+                }
 
-                    foreach (var _func in translationUnit.Functions)
-                    {
-                        var modifiers = new SyntaxTokenList();
-                        modifiers = modifiers.Add(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
-                        modifiers = modifiers.Add(SyntaxFactory.Token(SyntaxKind.StaticKeyword));
-                        modifiers = modifiers.Add(SyntaxFactory.Token(SyntaxKind.ExternKeyword));
-
-                        var attributes = new SyntaxList<AttributeListSyntax>();
-                        attributes = attributes.Add(SyntaxFactory.AttributeList(new SeparatedSyntaxList<AttributeSyntax>().Add(dllImportAttribute)));
-                        var parameters = new SeparatedSyntaxList<ParameterSyntax>();
-
-                        foreach (var parameter in _func.Parameters)
-                        {
-                            TypeSyntax paramType;
-                            if (fieldParametersTypeOverrides != null && fieldParametersTypeOverrides.ContainsKey(parameter.Name))
+                var methodsDeclarations = translationUnit.Functions.Select(_func =>
+                {
+                    var parameterList = SyntaxFactory.ParameterList(
+                        SyntaxFactory.SeparatedList(
+                            _func.Parameters.Select(parameter =>
                             {
-                                if (declarations.ContainsKey(fieldParametersTypeOverrides[parameter.Name]))
+                                TypeSyntax paramType;
+                                if (fieldParametersTypeOverrides != null && fieldParametersTypeOverrides.ContainsKey(parameter.Name))
                                 {
-                                    paramType = GetTypeSyntax(context, new TagType()
+                                    if (declarations.ContainsKey(fieldParametersTypeOverrides[parameter.Name]))
                                     {
-                                        Declaration = declarations[fieldParametersTypeOverrides[parameter.Name]]
-                                    }, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                        paramType = GetTypeSyntax(context, new TagType()
+                                        {
+                                            Declaration = declarations[fieldParametersTypeOverrides[parameter.Name]]
+                                        }, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                    }
+                                    else
+                                        throw new Exception($"Нет типа для переопределения {fieldParametersTypeOverrides[parameter.Name]}");
                                 }
                                 else
-                                    throw new Exception($"Нет типа для переопределения {fieldParametersTypeOverrides[parameter.Name]}");
+                                {
+                                    paramType = GetTypeSyntax(context, parameter.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                }
+
+                                var name = parameter.Name;
+                                if (name == "internal" || name == "base" || name == "params" || name == "event")
+                                    name = "_" + name;
+                                return SyntaxFactory.Parameter(default, default, paramType, SyntaxFactory.Identifier(name), default);
+                            }
+                        )));
+
+                    var returnTypeSyntax = GetTypeSyntax(context, _func.ReturnType.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+
+                    var methodDeclaration = SyntaxFactory.MethodDeclaration(returnTypeSyntax, _func.Name)
+                        .WithParameterList(parameterList);
+
+                    return methodDeclaration;
+                });
+
+                foreach (var runtimePair in lib.RuntimeData.PerPlatformPathes)
+                {
+                    var nativeMethodDeclarations = methodsDeclarations.Select(method =>
+                    {
+                        return method.WithModifiers(
+                                SyntaxFactory.TokenList(
+                                    SyntaxFactory.Token(SyntaxKind.PublicKeyword),
+                                    SyntaxFactory.Token(SyntaxKind.StaticKeyword),
+                                    SyntaxFactory.Token(SyntaxKind.ExternKeyword)
+                                    )
+                        )
+                        .WithAttributeLists(
+                            SyntaxFactory.List(
+                                new[]
+                                {
+                                    SyntaxFactory.AttributeList(
+                                    SyntaxFactory.SeparatedList(
+                                        new[]
+                                        {
+                                            SyntaxFactory.Attribute(
+                                                SyntaxFactory.IdentifierName("DllImport"),
+                                                SyntaxFactory.AttributeArgumentList(
+                                                    SyntaxFactory.SeparatedList(
+                                                        new[]
+                                                            {
+                                                                SyntaxFactory.AttributeArgument(
+                                                                     SyntaxFactory.LiteralExpression(
+                                                                        SyntaxKind.StringLiteralExpression,
+                                                                        SyntaxFactory.Literal(runtimePair.Value))
+                                                                     ),
+                                                                SyntaxFactory.AttributeArgument(
+                                                                         SyntaxFactory.ParseExpression("CallingConvention = CallingConvention.Cdecl")
+                                                                    )
+                                                            }
+                                                        )
+                                                    )
+                                            )
+                                        }
+                                        )
+
+                                    )
+                                }
+                            )
+                        )
+                        .WithSemicolonToken(
+                            SyntaxFactory.Token(SyntaxKind.SemicolonToken)
+                            );
+                    });
+
+                    var nativeClassSyntax = SyntaxFactory.ClassDeclaration($"{lib.LibName}{runtimePair.Key}Native")
+                        .WithModifiers(
+                            SyntaxFactory.TokenList(
+                                SyntaxFactory.Token(SyntaxKind.InternalKeyword),
+                                SyntaxFactory.Token(SyntaxKind.StaticKeyword),
+                                SyntaxFactory.Token(SyntaxKind.UnsafeKeyword)
+                                )
+                        )
+                        .AddMembers(nativeMethodDeclarations.ToArray());
+
+                    using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{lib.LibName}{runtimePair.Key}Native.cs")))
+                    {
+                        fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
+                            namespaceDeclarationSyntax.AddMembers(
+                                nativeClassSyntax
+                                )
+                            )
+                            .WithUsings(
+                                SyntaxFactory.List(
+                                        new[] {
+                                            SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Runtime.InteropServices"))
+                                        }
+                                    )
+                            )
+                            .NormalizeWhitespace().ToFullString());
+                    }
+
+
+                    var implementationClassSyntax = SyntaxFactory.ClassDeclaration($"{lib.LibName}{runtimePair.Key}")
+                        .WithModifiers(
+                            SyntaxFactory.TokenList(
+                                SyntaxFactory.Token(SyntaxKind.InternalKeyword),
+                                SyntaxFactory.Token(SyntaxKind.UnsafeKeyword)
+                                )
+                        )
+                        .AddMembers(methodsDeclarations.Select(t =>
+                        {
+                            var parameterNames = t.ParameterList.Parameters.Select(t => t.Identifier.Text);
+
+                            var predefinedReturnType = t.ReturnType as PredefinedTypeSyntax;
+
+                            if (predefinedReturnType != null && predefinedReturnType.Keyword.Text == "void")
+                            {
+                                return t.WithBody(
+                                    SyntaxFactory.Block(
+                                            SyntaxFactory.ParseStatement($"{lib.LibName}{runtimePair.Key}Native.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                        )
+                                    )
+                                .WithModifiers(
+                                    SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                                    );
                             }
                             else
                             {
-                                paramType = GetTypeSyntax(context, parameter.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                return t.WithBody(
+                                    SyntaxFactory.Block(
+                                            SyntaxFactory.ParseStatement($"return {lib.LibName}{runtimePair.Key}Native.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                        )
+                                    )
+                                .WithModifiers(
+                                    SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                                    );
                             }
+                        }).ToArray())
+                        .WithBaseList(
+                            SyntaxFactory.BaseList(
+                                    SyntaxFactory.SeparatedList<BaseTypeSyntax>(new[] { SyntaxFactory.SimpleBaseType(SyntaxFactory.ParseTypeName($"I{lib.LibName}")) })
+                                )
+                        );
 
-                            var name = parameter.Name;
-                            if (name == "internal" || name == "base" || name == "params" || name == "event")
-                                name = "_" + name;
-
-
-                            parameters = parameters.Add(SyntaxFactory.Parameter(default, default, paramType, SyntaxFactory.Identifier(name), default));
-                        }
-
-                        var returnTypeSyntax = GetTypeSyntax(context, _func.ReturnType.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
-                        var funcSyntax = SyntaxFactory.MethodDeclaration(
-                            attributes,
-                            modifiers,
-                            returnTypeSyntax,
-                            null,
-                            SyntaxFactory.Identifier(_func.Name),
-                            null,
-                            SyntaxFactory.ParameterList(parameters),
-                            default,
-                            null,
-                            SyntaxFactory.Token(SyntaxKind.SemicolonToken));
-
-
-                        funcSyntaxTypes.Add(funcSyntax);
+                    using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{lib.LibName}{runtimePair.Key}.cs")))
+                    {
+                        fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
+                            namespaceDeclarationSyntax.AddMembers(
+                                implementationClassSyntax
+                                )
+                            ).NormalizeWhitespace().ToFullString());
                     }
+                }
 
-                    classSyntax = classSyntax.AddMembers(funcSyntaxTypes.ToArray());
+                using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/I{lib.LibName}.cs")))
+                {
+                    fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
+                        namespaceDeclarationSyntax.AddMembers(
+                            SyntaxFactory.InterfaceDeclaration($"I{lib.LibName}")
+                                .WithModifiers(
+                                    SyntaxFactory.TokenList(
+                                        SyntaxFactory.Token(SyntaxKind.InternalKeyword),
+                                        SyntaxFactory.Token(SyntaxKind.UnsafeKeyword)
+                                ))
+                                .AddMembers(methodsDeclarations.Select(t => t.WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))).ToArray())
+                            )
+                        ).NormalizeWhitespace().ToFullString());
+                }
 
-                    var namespaceNameSyntax = SyntaxFactory.IdentifierName(_namespace);
+                var isFirst = true;
+                var constructorBody = "";
+                foreach (var platform in lib.RuntimeData.PerPlatformPathes.Keys)
+                {
+                    if (isFirst)
+                    {
+                        constructorBody += $"if (platform == Platform.{platform})";
+                        isFirst = false;
+                    }
+                    else
+                        constructorBody += $"else if (platform == Platform.{platform})";
+                    constructorBody += $" lib = new {lib.LibName}{platform}();";
+                }
 
-                    var namespaceDeclarationSyntax = SyntaxFactory.NamespaceDeclaration(
-                        namespaceNameSyntax,
-                        default,
-                        default,
-                        default);
+                constructorBody += "else";
+                constructorBody += " throw new System.NotSupportedException(\"not supported\");";
 
-                    namespaceDeclarationSyntax = namespaceDeclarationSyntax.AddMembers(classSyntax);
+                using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{lib.LibName}.cs")))
+                {
+                    fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
+                        namespaceDeclarationSyntax.AddMembers(
+                            SyntaxFactory.ClassDeclaration($"{lib.LibName}")
+                                .WithModifiers(
+                                    SyntaxFactory.TokenList(
+                                        SyntaxFactory.Token(SyntaxKind.PublicKeyword),
+                                        SyntaxFactory.Token(SyntaxKind.UnsafeKeyword)
+                                    )
+                                )
+                                .AddMembers(
+                                    SyntaxFactory.ConstructorDeclaration(lib.LibName)
+                                        .WithBody(SyntaxFactory.Block(
+                                                SyntaxFactory.ParseStatement(constructorBody)
+                                            ))
+                                        .WithModifiers(
+                                            SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                                        )
+                                        .WithParameterList(
+                                            SyntaxFactory.ParameterList(
+                                                SyntaxFactory.SeparatedList(
+                                                    new[]
+                                                    {
+                                                        SyntaxFactory.Parameter(
+                                                            default,
+                                                            default,
+                                                            SyntaxFactory.ParseTypeName("Platform"),
+                                                            SyntaxFactory.Identifier("platform"),
+                                                            default)
+                                                    }
+                                                    )
+                                                )
+                                        ),
+                                    SyntaxFactory.FieldDeclaration(
+                                            SyntaxFactory.VariableDeclaration(
+                                                    SyntaxFactory.ParseTypeName($"I{lib.LibName}"),
+                                                    SyntaxFactory.SeparatedList(
+                                                            new[]
+                                                            {
+                                                                SyntaxFactory.VariableDeclarator("lib")
+                                                            }
+                                                        )
+                                                )
+                                        )
+                                )
+                                .AddMembers(
+                                methodsDeclarations.Select(t =>
+                                {
+                                    var parameterNames = t.ParameterList.Parameters.Select(t => t.Identifier.Text);
 
-                    rootSyntax = rootSyntax.AddMembers(namespaceDeclarationSyntax);
-                    fileWriter.Write(rootSyntax.NormalizeWhitespace().ToFullString());
+                                    var predefinedReturnType = t.ReturnType as PredefinedTypeSyntax;
+
+                                    if (predefinedReturnType != null && predefinedReturnType.Keyword.Text == "void")
+                                    {
+                                        return t.WithBody(
+                                            SyntaxFactory.Block(
+                                                    SyntaxFactory.ParseStatement($"lib.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                                )
+                                            )
+                                        .WithModifiers(
+                                            SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                                            );
+                                    }
+                                    else
+                                    {
+                                        return t.WithBody(
+                                            SyntaxFactory.Block(
+                                                    SyntaxFactory.ParseStatement($"return lib.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                                )
+                                            )
+                                        .WithModifiers(
+                                            SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                                            );
+                                    }
+                                }).ToArray())
+                            )
+                        ).NormalizeWhitespace().ToFullString());
                 }
             }
+
+
+            using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/Platform.cs")))
+            {
+                fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
+                    namespaceDeclarationSyntax.AddMembers(
+                        SyntaxFactory.EnumDeclaration($"Platform")
+                            .WithModifiers(
+                                SyntaxFactory.TokenList(
+                                    SyntaxFactory.Token(SyntaxKind.PublicKeyword)
+                            ))
+                            .AddMembers(
+                                SyntaxFactory.EnumMemberDeclaration("Android"),
+                                SyntaxFactory.EnumMemberDeclaration("Windows"),
+                                SyntaxFactory.EnumMemberDeclaration("Linux")
+                            )
+                        )
+                    ).NormalizeWhitespace().ToFullString());
+            }
+
+
             if (forceTypesToGeneration != null)
             {
                 foreach (var type in forceTypesToGeneration)
@@ -205,7 +414,7 @@ namespace BindingGenerator
             CppSharp.AST.Type type,
             string outputDir,
             string _namespace,
-             Dictionary<string, string>? notFoundTypesOverrides,
+            Dictionary<string, string>? notFoundTypesOverrides,
             Dictionary<PrimitiveType, string> primitiveTypesMap,
             Dictionary<string, TypedefStrategy>? typedefStrategies,
             Dictionary<string, string>? fieldParametersTypeOverrides,
@@ -254,9 +463,16 @@ namespace BindingGenerator
 
             if (tagType != null)
             {
-                RegisterType(context, tagType.Declaration.Name, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                try
+                {
+                    RegisterType(context, tagType.Declaration.Name, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
 
-                return SyntaxFactory.ParseTypeName(tagType.Declaration.Name);
+                    return SyntaxFactory.ParseTypeName(tagType.Declaration.Name);
+                }
+                catch (OverridedException ex)
+                {
+                    return SyntaxFactory.ParseTypeName(ex.NewName);
+                }
             }
 
             if (functionType != null)
@@ -365,7 +581,15 @@ namespace BindingGenerator
             }
         }
 
+        private class OverridedException : Exception
+        {
+            public OverridedException(string newName)
+            {
+                NewName = newName;
+            }
 
+            public string NewName { get; set; }
+        }
         private static void RegisterType(
             ASTContext context,
             string typeName,
@@ -476,6 +700,7 @@ namespace BindingGenerator
                 if (notFoundTypesOverrides.ContainsKey(typeName))
                 {
                     RegisterType(context, notFoundTypesOverrides[typeName], outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                    throw new OverridedException(notFoundTypesOverrides[typeName]);
                 }
             }
             //else if (typeName == anonymousEnumName)

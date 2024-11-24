@@ -8,10 +8,10 @@
 		<Description>CppSharp based binding generator for dotnet</Description>
 		<PackageProjectUrl>https://github.com/tonisimakov99/BindingGenerator</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/tonisimakov99/BindingGenerator</RepositoryUrl>
-		<PackageReleaseNotes>some changes</PackageReleaseNotes>
+		<PackageReleaseNotes>multiruntime bindings</PackageReleaseNotes>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<PackageTags>Generator;Bindings;CppSharp</PackageTags>
-		<Version>1.0.5</Version>
+		<Version>1.0.6</Version>
 	</PropertyGroup>
 
 	<ItemGroup>

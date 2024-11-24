@@ -8,8 +8,8 @@ namespace BindingGenerator
 {
     public class LibData
     {
-        public string LibName { get; set; }
-        public string FuncsHeaderPath { get; set; }
-        public string LibFileImportedNamePath { get; set; }
+        public required string LibName { get; set; }
+        public required string FuncsHeaderPath { get; set; }
+        public required RuntimeData RuntimeData { get; set; }
     }
 }

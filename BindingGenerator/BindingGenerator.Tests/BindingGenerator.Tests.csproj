@@ -53,6 +53,9 @@
 		<None Update="headers\overrideParameterTest\log.h">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</None>
+		<None Update="headers\someRuntimesTest\some_runtimes.h">
+		  <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+		</None>
 		<None Update="headers\typeRedefinitionTest\redefinition.h">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</None>
@@ -60,6 +63,7 @@
 
 	<ItemGroup>
 		<Folder Include="headers\anonymousEnumsTest\" />
+		<Folder Include="headers\someRuntimesTest\" />
 		<Folder Include="headers\typeRedefinitionTest\" />
 	</ItemGroup>
 

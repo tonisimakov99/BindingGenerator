@@ -25,7 +25,14 @@ namespace BindingGenerator.Tests
         {
             Generator.Generate(
                 [$"{Environment.CurrentDirectory}/headers/overrideParameterTest"],
-                [new LibData() { FuncsHeaderPath = "log.h", LibFileImportedNamePath = "lib.so", LibName = "Lib" }],
+                [new LibData() {
+                    FuncsHeaderPath = "log.h",
+                    RuntimeData = new RuntimeData(){
+                        PerPlatformPathes = new Dictionary<Platform, string>(){
+                            { Platform.Linux, "lib.so"}
+                        }
+                    },
+                    LibName = "Lib" }],
                 "./overrideParameterTest",
                 "Lib",
                 fieldParametersTypeOverrides: new Dictionary<string, string>()
@@ -34,9 +41,9 @@ namespace BindingGenerator.Tests
                 }
             );
 
-            Assert.True(File.Exists("overrideParameterTest/Lib.cs"));
+            Assert.True(File.Exists("overrideParameterTest/LibLinuxNative.cs"));
 
-            var libApiLines = File.ReadAllLines("overrideParameterTest/Lib.cs");
+            var libApiLines = File.ReadAllLines("overrideParameterTest/LibLinuxNative.cs");
             Assert.Contains(libApiLines, t => t.Contains("__android_log_print"));
             Assert.Contains(libApiLines, t => t.Contains("namespace Lib"));
             Assert.Contains(libApiLines, t => t.Contains("android_LogPriority prio"));
@@ -48,7 +55,14 @@ namespace BindingGenerator.Tests
         {
             Generator.Generate(
                new[] { $"{Environment.CurrentDirectory}/headers/anonymousEnumsTest" },
-                [new LibData() { FuncsHeaderPath = "freetype.h", LibFileImportedNamePath = "lib.so", LibName = "Lib" }],
+                [new LibData() {
+                    FuncsHeaderPath = "freetype.h",
+                    RuntimeData = new RuntimeData(){
+                        PerPlatformPathes = new Dictionary<Platform, string>(){
+                            { Platform.Linux, "lib.so"}
+                        }
+                    },
+                    LibName = "Lib" }],
                "./anonymousEnumsTest",
                "Lib",
                anonymousEnumPrefixes: new List<string>() { "Prefix" },
@@ -75,7 +89,14 @@ namespace BindingGenerator.Tests
         {
             Generator.Generate(
                new[] { $"{Environment.CurrentDirectory}/headers/typeRedefinitionTest" },
-               [new LibData() { FuncsHeaderPath = "redefinition.h", LibFileImportedNamePath = "lib.so", LibName = "Lib" }],
+               [new LibData() {
+                   FuncsHeaderPath = "redefinition.h",
+                   RuntimeData = new RuntimeData(){
+                        PerPlatformPathes = new Dictionary<Platform, string>(){
+                            { Platform.Linux, "lib.so"}
+                        }
+                   },
+                   LibName = "Lib" }],
                "./typeRedefinitionTest",
                "Lib",
                logger: loggerFactory.CreateLogger<Generator>()
@@ -88,8 +109,22 @@ namespace BindingGenerator.Tests
         {
             Generator.Generate(
                new[] { $"{Environment.CurrentDirectory}/headers/multiheaderFuncTest" },
-               [new LibData() { FuncsHeaderPath = "headerB.h", LibFileImportedNamePath = "lib.so", LibName = "LibB" },
-                new LibData() { FuncsHeaderPath = "headerC.h", LibFileImportedNamePath = "lib.so", LibName = "LibC" }],
+               [new LibData() {
+                   FuncsHeaderPath = "headerB.h",
+                   RuntimeData = new RuntimeData(){
+                        PerPlatformPathes = new Dictionary<Platform, string>(){
+                            { Platform.Linux, "lib.so"}
+                        }
+                   },
+                   LibName = "LibB" },
+                new LibData() {
+                    FuncsHeaderPath = "headerC.h",
+                    RuntimeData = new RuntimeData(){
+                        PerPlatformPathes = new Dictionary<Platform, string>(){
+                            { Platform.Linux, "lib.so"}
+                        }
+                    },
+                    LibName = "LibC" }],
                "./multiheaderFuncTest",
                "Lib",
                logger: loggerFactory.CreateLogger<Generator>()
@@ -115,7 +150,14 @@ namespace BindingGenerator.Tests
         {
             Generator.Generate(
                new[] { $"{Environment.CurrentDirectory}/headers/anonymousEnumsPrefixesTest" },
-                [new LibData() { FuncsHeaderPath = "multi_enum_anonymous.h", LibFileImportedNamePath = "lib.so", LibName = "Lib" }],
+                [new LibData() {
+                    FuncsHeaderPath = "multi_enum_anonymous.h",
+                    RuntimeData = new RuntimeData(){
+                        PerPlatformPathes = new Dictionary<Platform, string>(){
+                            { Platform.Linux, "lib.so"}
+                        }
+                    },
+                    LibName = "Lib" }],
                "./anonymousEnumsPrefixesTest",
                "Lib",
                anonymousEnumPrefixes: new List<string>() { "SOME", "SOME2" },
@@ -126,6 +168,31 @@ namespace BindingGenerator.Tests
                }
              );
             Assert.True(File.Exists("anonymousEnumsPrefixesTest/Lib.cs"));
+        }
+
+        [Fact]
+        public void SomeRuntimesTest()
+        {
+            Generator.Generate(
+             new[] { $"{Environment.CurrentDirectory}/headers/someRuntimesTest" },
+              [new LibData() {
+                    FuncsHeaderPath = "some_runtimes.h",
+                    RuntimeData = new RuntimeData(){
+                        PerPlatformPathes= new Dictionary<Platform, string>(){
+                            { Platform.Windows,"runtimes/win-x64/some.dll" },
+                            { Platform.Linux,"runtimes/linux-x64/some.so" }
+                        }
+                    },
+                    LibName = "Lib" }],
+             "./someRuntimesTest",
+             "Lib"
+           );
+            Assert.True(File.Exists("someRuntimesTest/ILib.cs"));
+            Assert.True(File.Exists("someRuntimesTest/Lib.cs"));
+            Assert.True(File.Exists("someRuntimesTest/LibLinux.cs"));
+            Assert.True(File.Exists("someRuntimesTest/LibWindows.cs"));
+            Assert.True(File.Exists("someRuntimesTest/LibLinuxNative.cs"));
+            Assert.True(File.Exists("someRuntimesTest/LibWindowsNative.cs"));
         }
     }
 }

@@ -6,10 +6,10 @@ using System.Threading.Tasks;
 
 namespace BindingGenerator
 {
-    public class EnumSearchParameter
+    public enum Platform
     {
-        public required string Prefix { get; set; }
-
-        public string? ExcludePrefix { get; set; }
+        Android,
+        Windows,
+        Linux
     }
 }
