@@ -220,13 +220,17 @@ namespace BindingGenerator
                         {
                             var parameterNames = t.ParameterList.Parameters.Select(t => t.Identifier.Text);
 
+                            var parametersStr = "";
+                            if (parameterNames.Count() > 0)
+                                parametersStr = parameterNames.Aggregate((a, b) => a + ',' + b);
+
                             var predefinedReturnType = t.ReturnType as PredefinedTypeSyntax;
 
                             if (predefinedReturnType != null && predefinedReturnType.Keyword.Text == "void")
                             {
                                 return t.WithBody(
                                     SyntaxFactory.Block(
-                                            SyntaxFactory.ParseStatement($"{lib.LibName}{runtimePair.Key}Native.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                            SyntaxFactory.ParseStatement($"{lib.LibName}{runtimePair.Key}Native.{t.Identifier}({parametersStr});")
                                         )
                                     )
                                 .WithModifiers(
@@ -237,7 +241,7 @@ namespace BindingGenerator
                             {
                                 return t.WithBody(
                                     SyntaxFactory.Block(
-                                            SyntaxFactory.ParseStatement($"return {lib.LibName}{runtimePair.Key}Native.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                            SyntaxFactory.ParseStatement($"return {lib.LibName}{runtimePair.Key}Native.{t.Identifier}({parametersStr});")
                                         )
                                     )
                                 .WithModifiers(
@@ -344,13 +348,17 @@ namespace BindingGenerator
                                 {
                                     var parameterNames = t.ParameterList.Parameters.Select(t => t.Identifier.Text);
 
+                                    var parametersStr = "";
+                                    if (parameterNames.Count() > 0)
+                                        parametersStr = parameterNames.Aggregate((a, b) => a + ',' + b);
+
                                     var predefinedReturnType = t.ReturnType as PredefinedTypeSyntax;
 
                                     if (predefinedReturnType != null && predefinedReturnType.Keyword.Text == "void")
                                     {
                                         return t.WithBody(
                                             SyntaxFactory.Block(
-                                                    SyntaxFactory.ParseStatement($"lib.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                                    SyntaxFactory.ParseStatement($"lib.{t.Identifier}({parametersStr});")
                                                 )
                                             )
                                         .WithModifiers(
@@ -361,7 +369,7 @@ namespace BindingGenerator
                                     {
                                         return t.WithBody(
                                             SyntaxFactory.Block(
-                                                    SyntaxFactory.ParseStatement($"return lib.{t.Identifier}({parameterNames.Aggregate((a, b) => a + ',' + b)});")
+                                                    SyntaxFactory.ParseStatement($"return lib.{t.Identifier}({parametersStr});")
                                                 )
                                             )
                                         .WithModifiers(
