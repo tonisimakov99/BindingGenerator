@@ -1,4 +1,5 @@
-﻿using CommandLine;
+﻿using CodingSeb.ExpressionEvaluator;
+using CommandLine;
 using CppSharp;
 using CppSharp.AST;
 
@@ -8,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -33,7 +35,7 @@ namespace BindingGenerator
             bool noStandardIncludes = false,
             List<string>? forceTypesToGeneration = default,
             Dictionary<string, string>? notFoundTypesOverrides = default,
-            List<EnumSearchParameter>? preprocessedEnumSearchParameters = default,
+            List<EnumSearchParameter>? preprocessedConstantSearchParameters = default,
             Dictionary<PrimitiveType, string>? primitiveTypesToCsTypesMap = default,
             Dictionary<string, TypedefStrategy>? typedefStrategies = default,
             Dictionary<string, string>? fieldParametersTypeOverrides = default,
@@ -75,7 +77,6 @@ namespace BindingGenerator
 
             var context = ClangParser.ConvertASTContext(parserOptions.ASTContext);
 
-            InitTypes(context, preprocessedEnumSearchParameters, anonymousEnumPrefixes, logger: logger);
 
             var namespaceNameSyntax = SyntaxFactory.IdentifierName(_namespace);
 
@@ -85,6 +86,15 @@ namespace BindingGenerator
                 default,
                 default);
 
+
+            var usings = SyntaxFactory.List(
+                new[] {
+                    SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Runtime.InteropServices"))
+                }
+            );
+
+            InitTypes(context, preprocessedConstantSearchParameters, anonymousEnumPrefixes, logger: logger);
+
             foreach (var lib in libs)
             {
                 var translationUnit = context.TranslationUnits.FirstOrDefault(t => lib.FuncsHeaderPath.Contains(t.FileName));
@@ -92,6 +102,21 @@ namespace BindingGenerator
                 {
                     throw new Exception($"Не найден translation unit для {lib.FuncsHeaderPath}");
                 }
+
+                var evaluator = new ExpressionEvaluator(context);
+                var properties = preprocessedEntities.Select(defenition =>
+                {
+                    var expressionResult = evaluator.Evaluate(defenition.Expression);
+                    var type = expressionResult.GetType();
+                    var typeName = type.FullName;
+                    if (typeName == typeof(long).FullName)
+                        typeName = "CLong";
+                    if (typeName == typeof(ulong).FullName)
+                        typeName = "CULong";
+
+                    return (typeNameSyntax: SyntaxFactory.ParseTypeName(typeName), typeName: typeName, propertyName: defenition.Name, value: expressionResult);
+
+                }).ToArray();
 
                 var methodsDeclarations = translationUnit.Functions.Select(_func =>
                 {
@@ -107,14 +132,14 @@ namespace BindingGenerator
                                         paramType = GetTypeSyntax(context, new TagType()
                                         {
                                             Declaration = declarations[fieldParametersTypeOverrides[parameter.Name]]
-                                        }, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                        }, outputDir, namespaceDeclarationSyntax, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                                     }
                                     else
                                         throw new Exception($"Нет типа для переопределения {fieldParametersTypeOverrides[parameter.Name]}");
                                 }
                                 else
                                 {
-                                    paramType = GetTypeSyntax(context, parameter.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                    paramType = GetTypeSyntax(context, parameter.Type, outputDir, namespaceDeclarationSyntax, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                                 }
 
                                 var name = parameter.Name;
@@ -124,7 +149,7 @@ namespace BindingGenerator
                             }
                         )));
 
-                    var returnTypeSyntax = GetTypeSyntax(context, _func.ReturnType.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                    var returnTypeSyntax = GetTypeSyntax(context, _func.ReturnType.Type, outputDir, namespaceDeclarationSyntax, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
 
                     var methodDeclaration = SyntaxFactory.MethodDeclaration(returnTypeSyntax, _func.Name)
                         .WithParameterList(parameterList);
@@ -198,13 +223,7 @@ namespace BindingGenerator
                                 nativeClassSyntax
                                 )
                             )
-                            .WithUsings(
-                                SyntaxFactory.List(
-                                        new[] {
-                                            SyntaxFactory.UsingDirective(SyntaxFactory.ParseName("System.Runtime.InteropServices"))
-                                        }
-                                    )
-                            )
+                            .WithUsings(usings)
                             .NormalizeWhitespace().ToFullString());
                     }
 
@@ -257,26 +276,54 @@ namespace BindingGenerator
 
                     using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{lib.LibName}{runtimePair.Key}.cs")))
                     {
-                        fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
-                            namespaceDeclarationSyntax.AddMembers(
-                                implementationClassSyntax
-                                )
+                        fileWriter.Write(SyntaxFactory.CompilationUnit()
+                            .WithUsings(usings)
+                            .AddMembers(
+                                namespaceDeclarationSyntax.AddMembers(
+                                    implementationClassSyntax
+                                       .AddMembers(properties.Select(t =>
+                                             {
+                                                 var value = $"{t.value}";
+                                                 if (t.typeName == "CLong")
+                                                     value = $"new CLong({t.value})";
+                                                 if (t.typeName == "CULong")
+                                                     value = $"new CULong({t.value})";
+
+                                                 return SyntaxFactory.PropertyDeclaration(t.typeNameSyntax, t.propertyName)
+                                                    .WithExpressionBody(SyntaxFactory.ArrowExpressionClause(SyntaxFactory.ParseExpression(value)))
+                                                    .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))
+                                                    .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)));
+                                             }
+                                            ).ToArray()
+                                       )
+                                    )
                             ).NormalizeWhitespace().ToFullString());
                     }
                 }
 
                 using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/I{lib.LibName}.cs")))
                 {
-                    fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
-                        namespaceDeclarationSyntax.AddMembers(
-                            SyntaxFactory.InterfaceDeclaration($"I{lib.LibName}")
-                                .WithModifiers(
-                                    SyntaxFactory.TokenList(
-                                        SyntaxFactory.Token(SyntaxKind.InternalKeyword),
-                                        SyntaxFactory.Token(SyntaxKind.UnsafeKeyword)
-                                ))
-                                .AddMembers(methodsDeclarations.Select(t => t.WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))).ToArray())
-                            )
+                    fileWriter.Write(SyntaxFactory.CompilationUnit()
+                        .WithUsings(usings)
+                        .AddMembers(
+                            namespaceDeclarationSyntax.AddMembers(
+                                SyntaxFactory.InterfaceDeclaration($"I{lib.LibName}")
+                                    .WithModifiers(
+                                        SyntaxFactory.TokenList(
+                                            SyntaxFactory.Token(SyntaxKind.InternalKeyword),
+                                            SyntaxFactory.Token(SyntaxKind.UnsafeKeyword)
+                                    ))
+                                    .AddMembers(methodsDeclarations.Select(t => t.WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))).ToArray())
+                                    .AddMembers(properties.Select(t =>
+                                         SyntaxFactory.PropertyDeclaration(t.typeNameSyntax, t.propertyName)
+                                        .WithAccessorList(
+                                            SyntaxFactory.AccessorList(
+                                                    SyntaxFactory.List(new[] { SyntaxFactory.AccessorDeclaration(SyntaxKind.GetAccessorDeclaration).WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken)) })
+                                                )
+                                            )
+                                        ).ToArray()
+                                    )
+                                )
                         ).NormalizeWhitespace().ToFullString());
                 }
 
@@ -299,7 +346,9 @@ namespace BindingGenerator
 
                 using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{lib.LibName}.cs")))
                 {
-                    fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(
+                    fileWriter.Write(SyntaxFactory.CompilationUnit()
+                        .WithUsings(usings)
+                        .AddMembers(
                         namespaceDeclarationSyntax.AddMembers(
                             SyntaxFactory.ClassDeclaration($"{lib.LibName}")
                                 .WithModifiers(
@@ -377,6 +426,14 @@ namespace BindingGenerator
                                             );
                                     }
                                 }).ToArray())
+                                .AddMembers(properties.Select(t =>
+                                {
+                                    return SyntaxFactory.PropertyDeclaration(t.typeNameSyntax, t.propertyName)
+                                       .WithExpressionBody(SyntaxFactory.ArrowExpressionClause(SyntaxFactory.ParseExpression($"lib.{t.propertyName}")))
+                                       .WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken))
+                                       .WithModifiers(SyntaxFactory.TokenList(SyntaxFactory.Token(SyntaxKind.PublicKeyword)));
+                                }).ToArray()
+                                )
                             )
                         ).NormalizeWhitespace().ToFullString());
                 }
@@ -406,7 +463,7 @@ namespace BindingGenerator
             {
                 foreach (var type in forceTypesToGeneration)
                 {
-                    RegisterType(context, type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                    RegisterType(context, type, outputDir, namespaceDeclarationSyntax, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                 }
             }
 
@@ -421,7 +478,8 @@ namespace BindingGenerator
             ASTContext context,
             CppSharp.AST.Type type,
             string outputDir,
-            string _namespace,
+            NamespaceDeclarationSyntax namespaceDeclaration,
+            SyntaxList<UsingDirectiveSyntax> usings,
             Dictionary<string, string>? notFoundTypesOverrides,
             Dictionary<PrimitiveType, string> primitiveTypesMap,
             Dictionary<string, TypedefStrategy>? typedefStrategies,
@@ -442,7 +500,7 @@ namespace BindingGenerator
                     if (typedefStrategies[typedefType.Declaration.Name] == TypedefStrategy.InferType)
                     {
                         logger?.LogInformation("typedef {declaration} выведен", typedefType.Declaration.DebugText);
-                        return GetTypeSyntax(context, typedefType.Declaration.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                        return GetTypeSyntax(context, typedefType.Declaration.Type, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                     }
                     else
                     {
@@ -453,18 +511,18 @@ namespace BindingGenerator
                                 {
                                     Name = typedefType.Declaration.Name
                                 }
-                            }, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                            }, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                     }
                 }
                 else
                 {
                     logger?.LogInformation("typedef {declaration} выведен", typedefType.Declaration.DebugText);
-                    return GetTypeSyntax(context, typedefType.Declaration.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                    return GetTypeSyntax(context, typedefType.Declaration.Type, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                 }
             }
 
             if (pointerType != null)
-                return SyntaxFactory.PointerType(GetTypeSyntax(context, pointerType.Pointee, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger));
+                return SyntaxFactory.PointerType(GetTypeSyntax(context, pointerType.Pointee, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger));
 
             if (builtInType != null)
                 return SyntaxFactory.ParseTypeName(primitiveTypesMap[builtInType.Type]);
@@ -473,7 +531,7 @@ namespace BindingGenerator
             {
                 try
                 {
-                    RegisterType(context, tagType.Declaration.Name, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                    RegisterType(context, tagType.Declaration.Name, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
 
                     return SyntaxFactory.ParseTypeName(tagType.Declaration.Name);
                 }
@@ -488,9 +546,9 @@ namespace BindingGenerator
                 var parameters = new SeparatedSyntaxList<FunctionPointerParameterSyntax>();
 
                 foreach (var parameter in functionType.Parameters)
-                    parameters = parameters.Add(SyntaxFactory.FunctionPointerParameter(GetTypeSyntax(context, parameter.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger)));
+                    parameters = parameters.Add(SyntaxFactory.FunctionPointerParameter(GetTypeSyntax(context, parameter.Type, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger)));
 
-                parameters = parameters.Add(SyntaxFactory.FunctionPointerParameter(GetTypeSyntax(context, functionType.ReturnType.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger)));
+                parameters = parameters.Add(SyntaxFactory.FunctionPointerParameter(GetTypeSyntax(context, functionType.ReturnType.Type, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger)));
 
                 return SyntaxFactory.FunctionPointerType(
                     SyntaxFactory.FunctionPointerCallingConvention(SyntaxFactory.Token(SyntaxKind.UnmanagedKeyword)),
@@ -499,12 +557,12 @@ namespace BindingGenerator
             }
 
             if (arrayType != null)
-                return SyntaxFactory.ArrayType(GetTypeSyntax(context, arrayType.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger));
+                return SyntaxFactory.ArrayType(GetTypeSyntax(context, arrayType.Type, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger));
 
             throw new System.Exception("type not handled");
         }
 
-        private static void InitTypes(ASTContext context, List<EnumSearchParameter>? preprocessedEnumSearchParameters, List<string>? anonymousEnumPrefixes = default, ILogger<Generator>? logger = default)
+        private static void InitTypes(ASTContext context, List<EnumSearchParameter>? preprocessedConstantSearchParameters, List<string>? anonymousEnumPrefixes = default, ILogger<Generator>? logger = default)
         {
             foreach (var translationUnit in context.TranslationUnits)
             {
@@ -548,12 +606,11 @@ namespace BindingGenerator
                 }
             }
 
-            if (preprocessedEnumSearchParameters != null)
+            if (preprocessedConstantSearchParameters != null)
             {
-                foreach (var preprocessedEnumSearchParameter in preprocessedEnumSearchParameters)
+                foreach (var preprocessedEnumSearchParameter in preprocessedConstantSearchParameters)
                 {
                     var definations = new List<MacroDefinition>();
-
                     foreach (var translationUnit in context.TranslationUnits)
                     {
                         foreach (var entity in translationUnit.PreprocessedEntities)
@@ -575,16 +632,18 @@ namespace BindingGenerator
                         }
                     }
 
-                    var _enum = new Enumeration()
-                    {
-                        Name = preprocessedEnumSearchParameter.Prefix,
-                        Type = new BuiltinType() { Type = PrimitiveType.Long },
-                        //Items = definations.Select(t => new Enumeration.Item() { Name = t.Key, Expression = t.Value }).ToList()
-                    };
-                    _enum.Items = definations.Select(t => _enum.GenerateEnumItemFromMacro(t)).ToList();
+                    preprocessedEntities.AddRange(definations);
 
-                    enumerations.Add(preprocessedEnumSearchParameter.Prefix, _enum);
-                    declarations.Add(preprocessedEnumSearchParameter.Prefix, _enum);
+                    //var _enum = new Enumeration()
+                    //{
+                    //    Name = preprocessedEnumSearchParameter.Prefix,
+                    //    Type = new BuiltinType() { Type = PrimitiveType.Long },
+                    //    //Items = definations.Select(t => new Enumeration.Item() { Name = t.Key, Expression = t.Value }).ToList()
+                    //};
+                    //_enum.Items = definations.Select(t => _enum.GenerateEnumItemFromMacro(t)).ToList();
+
+                    //enumerations.Add(preprocessedEnumSearchParameter.Prefix, _enum);
+                    //declarations.Add(preprocessedEnumSearchParameter.Prefix, _enum);
                 }
             }
         }
@@ -602,7 +661,8 @@ namespace BindingGenerator
             ASTContext context,
             string typeName,
             string outputDir,
-            string _namespace,
+            NamespaceDeclarationSyntax namespaceDeclaration,
+            SyntaxList<UsingDirectiveSyntax> usings,
             Dictionary<string, string>? notFoundTypesOverrides,
             Dictionary<PrimitiveType, string> primitiveTypesMap,
             Dictionary<string, TypedefStrategy>? typedefStrategies,
@@ -617,13 +677,6 @@ namespace BindingGenerator
                     var _class = classes[typeName];
                     using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{_class.Name}.cs")))
                     {
-                        var namespaceNameSyntax = SyntaxFactory.IdentifierName(_namespace);
-
-                        var rootSyntax = SyntaxFactory.NamespaceDeclaration(
-                            namespaceNameSyntax,
-                            default,
-                            new SyntaxList<UsingDirectiveSyntax>().Add(SyntaxFactory.UsingDirective(SyntaxFactory.IdentifierName("System.Runtime.InteropServices"))),
-                            default);
                         var attribute = SyntaxFactory.Attribute(
                                       SyntaxFactory.IdentifierName("StructLayout"),
                                       SyntaxFactory.AttributeArgumentList(
@@ -644,14 +697,14 @@ namespace BindingGenerator
                                     typeSyntax = GetTypeSyntax(context, new TagType()
                                     {
                                         Declaration = declarations[fieldParametersTypeOverrides[field.Name]]
-                                    }, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                    }, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                                 }
                                 else
                                     throw new Exception($"Нет типа для переопределения {fieldParametersTypeOverrides[field.Name]}");
                             }
                             else
                             {
-                                typeSyntax = GetTypeSyntax(context, field.Type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                                typeSyntax = GetTypeSyntax(context, field.Type, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                             }
 
                             var variablesList = new SeparatedSyntaxList<VariableDeclaratorSyntax>();
@@ -665,9 +718,12 @@ namespace BindingGenerator
                             _struct = _struct.AddMembers(fieldDeclaration);
                         }
 
-                        rootSyntax = rootSyntax.AddMembers(_struct);
+                        var root = SyntaxFactory.CompilationUnit();
 
-                        fileWriter.Write(rootSyntax.NormalizeWhitespace().ToFullString());
+                        fileWriter.Write(
+                            root.WithUsings(usings)
+                            .AddMembers(namespaceDeclaration.AddMembers(_struct))
+                            .NormalizeWhitespace().ToFullString());
                     }
                 }
             }
@@ -679,15 +735,13 @@ namespace BindingGenerator
                     var _enum = enumerations[typeName];
                     using (var fileWriter = new StreamWriter(File.OpenWrite($"{outputDir}/{_enum.Name}.cs")))
                     {
-                        var namespaceNameSyntax = SyntaxFactory.IdentifierName(_namespace);
-                        var root = SyntaxFactory.NamespaceDeclaration(namespaceNameSyntax);
                         var type = _enum.Type as BuiltinType;
 
                         var _enumDeclaration = SyntaxFactory.EnumDeclaration(_enum.Name);
                         _enumDeclaration = _enumDeclaration.AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword));
                         _enumDeclaration = _enumDeclaration.WithBaseList(
                             SyntaxFactory.BaseList(
-                                new SeparatedSyntaxList<BaseTypeSyntax>().Add(SyntaxFactory.SimpleBaseType(GetTypeSyntax(context, type, outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger)))));
+                                new SeparatedSyntaxList<BaseTypeSyntax>().Add(SyntaxFactory.SimpleBaseType(GetTypeSyntax(context, type, outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger)))));
 
                         foreach (var item in _enum.Items)
                         {
@@ -697,9 +751,7 @@ namespace BindingGenerator
                             _enumDeclaration = _enumDeclaration.AddMembers(_enumMemberDeclaration);
                         }
 
-                        root = root.AddMembers(_enumDeclaration);
-
-                        fileWriter.Write(root.NormalizeWhitespace().ToFullString());
+                        fileWriter.Write(SyntaxFactory.CompilationUnit().AddMembers(_enumDeclaration).NormalizeWhitespace().ToFullString());
                     }
                 }
             }
@@ -707,7 +759,7 @@ namespace BindingGenerator
             {
                 if (notFoundTypesOverrides.ContainsKey(typeName))
                 {
-                    RegisterType(context, notFoundTypesOverrides[typeName], outputDir, _namespace, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
+                    RegisterType(context, notFoundTypesOverrides[typeName], outputDir, namespaceDeclaration, usings, notFoundTypesOverrides, primitiveTypesMap, typedefStrategies, fieldParametersTypeOverrides, logger);
                     throw new OverridedException(notFoundTypesOverrides[typeName]);
                 }
             }
