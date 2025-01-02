@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Xml.Linq;
 
 namespace BindingGenerator
@@ -48,7 +49,20 @@ namespace BindingGenerator
 
             foreach (var includeDir in includeDirs)
                 parserOptions.AddIncludeDirs(includeDir);
-            parserOptions.Setup(TargetPlatform.Windows);
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                parserOptions.Setup(TargetPlatform.Windows);
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                parserOptions.Setup(TargetPlatform.Linux);
+            }
+            else
+            {
+                throw new Exception("not supported");
+            }
+
             parserOptions.LanguageVersion = CppSharp.Parser.LanguageVersion.CPP17_GNU;
             parserOptions.NoBuiltinIncludes = noBuiltinIncludes;
             parserOptions.NoStandardIncludes = noStandardIncludes;
@@ -58,7 +72,7 @@ namespace BindingGenerator
             for (uint i = 0; i != parseResult.DiagnosticsCount; i++)
             {
                 var diagnostic = parseResult.GetDiagnostics(i);
-                logger?.LogWarning("fileName: {fileName}, line: {line}, column: {column}, message: {message}", diagnostic.FileName, diagnostic.LineNumber, diagnostic.ColumnNumber, diagnostic.Message);
+                logger?.LogWarning("level {level}, fileName: {fileName}, line: {line}, column: {column}, message: {message}", diagnostic.Level, diagnostic.FileName, diagnostic.LineNumber, diagnostic.ColumnNumber, diagnostic.Message);
             }
 
             if (parseResult.Kind != CppSharp.Parser.ParserResultKind.Success)
