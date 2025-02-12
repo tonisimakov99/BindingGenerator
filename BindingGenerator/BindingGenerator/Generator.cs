@@ -132,6 +132,7 @@ namespace BindingGenerator
 
                 }).ToArray();
 
+                var argCount = 0;
                 var methodsDeclarations = translationUnit.Functions.Select(_func =>
                 {
                     var parameterList = SyntaxFactory.ParameterList(
@@ -157,8 +158,15 @@ namespace BindingGenerator
                                 }
 
                                 var name = parameter.Name;
+
+                                if (string.IsNullOrEmpty(name))
+                                    name = $"arg{argCount}";
+
                                 if (name == "internal" || name == "base" || name == "params" || name == "event")
                                     name = "_" + name;
+
+                                argCount++;
+
                                 return SyntaxFactory.Parameter(default, default, paramType, SyntaxFactory.Identifier(name), default);
                             }
                         )));

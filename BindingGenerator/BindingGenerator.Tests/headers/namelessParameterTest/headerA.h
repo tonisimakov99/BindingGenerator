@@ -1,0 +1,1 @@
+long FuncA(int, int bParameter);

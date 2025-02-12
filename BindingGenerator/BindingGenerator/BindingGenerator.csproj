@@ -8,10 +8,10 @@
 		<Description>CppSharp based binding generator for dotnet</Description>
 		<PackageProjectUrl>https://github.com/tonisimakov99/BindingGenerator</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/tonisimakov99/BindingGenerator</RepositoryUrl>
-		<PackageReleaseNotes>preprocessed enums -> preprocessed constants</PackageReleaseNotes>
+		<PackageReleaseNotes>nameless args in C funcs</PackageReleaseNotes>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
 		<PackageTags>Generator;Bindings;CppSharp</PackageTags>
-		<Version>1.0.8</Version>
+		<Version>1.0.10</Version>
 	</PropertyGroup>
 
 	<ItemGroup>

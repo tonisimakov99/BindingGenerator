@@ -194,5 +194,29 @@ namespace BindingGenerator.Tests
             Assert.True(File.Exists("someRuntimesTest/LibLinuxNative.cs"));
             Assert.True(File.Exists("someRuntimesTest/LibWindowsNative.cs"));
         }
+
+        [Fact]
+        public void NamelessParameterTest()
+        {
+            Generator.Generate(
+             new[] { $"{Environment.CurrentDirectory}/headers/namelessParameterTest" },
+              [new LibData() {
+                    FuncsHeaderPath = "headerA.h",
+                    RuntimeData = new RuntimeData(){
+                        PerPlatformPathes= new Dictionary<Platform, string>(){
+                            { Platform.Windows,"runtimes/win-x64/some.dll" },
+                            { Platform.Linux,"runtimes/linux-x64/some.so" }
+                        }
+                    },
+                    LibName = "Lib" }],
+             "./namelessParameterTest",
+             "Lib"
+           );
+            Assert.True(File.Exists("namelessParameterTest/Lib.cs"));
+
+            var libLines = File.ReadAllLines("namelessParameterTest/Lib.cs");
+            Assert.Contains(libLines, t => t.Contains("FuncA(int arg10, int bParameter)"));
+
+        }
     }
 }
